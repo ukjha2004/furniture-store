@@ -1,23 +1,18 @@
-"""REST API endpoints (all under /api)."""
+"""REST API endpoints for products and the cart (all under /api).
+
+Login lives in auth.py and checkout/payments in orders.py.
+"""
 
 from flask import Blueprint, current_app, jsonify, request
 
 from .db import get_db
+from .errors import BadRequest
 from .models import Cart
 from .repository import SORT_OPTIONS, CartRepository, ProductRepository, SearchQuery
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
 MAX_PAGE_SIZE = 48
-
-
-class BadRequest(Exception):
-    """Raised for invalid input; turned into a 400 JSON response below."""
-
-
-@api.errorhandler(BadRequest)
-def handle_bad_request(err):
-    return jsonify(error=str(err)), 400
 
 
 def _int_arg(name, default=None, minimum=None, maximum=None):

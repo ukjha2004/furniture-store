@@ -1,123 +1,73 @@
-import { useEffect, useState } from "react";
-import { api } from "./api.js";
+import { useState } from "react";
+import { useAuth } from "./hooks/useAuth.js";
 import { useCart } from "./hooks/useCart.js";
-import Filters from "./components/Filters.jsx";
-import ProductCard from "./components/ProductCard.jsx";
-import ProductModal from "./components/ProductModal.jsx";
+import { navigate, useHashRoute } from "./hooks/useHashRoute.js";
 import CartPanel from "./components/CartPanel.jsx";
+import StorePage from "./pages/StorePage.jsx";
+import LoginPage from "./pages/LoginPage.jsx";
+import CheckoutPage from "./pages/CheckoutPage.jsx";
+import { OrderPage, OrdersPage } from "./pages/OrdersPage.jsx";
 
-const EMPTY_FILTERS = { q: "", category: "", min_price: "", max_price: "", sort: "relevance" };
-
-// Wait until the user stops typing before calling the API (fewer requests).
-function useDebounced(value, delayMs = 300) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
-
+// The app shell: header, cart panel, and whichever page the URL points to.
 export default function App() {
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [page, setPage] = useState(1);
-  const [categories, setCategories] = useState([]);
-  const [results, setResults] = useState({ items: [], total: 0, total_pages: 0 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [openProductId, setOpenProductId] = useState(null);
-  const [cartOpen, setCartOpen] = useState(false);
+  const route = useHashRoute();
+  const auth = useAuth();
   const cart = useCart();
+  const [cartOpen, setCartOpen] = useState(false);
 
-  const debouncedFilters = useDebounced(filters);
-
-  useEffect(() => {
-    api.categories().then(setCategories).catch((err) => setError(err.message));
-  }, []);
-
-  // Any filter change sends the user back to page 1.
-  const changeFilters = (next) => {
-    setFilters(next);
-    setPage(1);
+  // Pages that need a logged-in user send visitors to #/login, then back here afterwards.
+  const requireLogin = (destination) => {
+    if (auth.user) navigate(destination);
+    else navigate(`/login?next=${encodeURIComponent(destination)}`);
   };
-
-  // Re-run the search whenever the (debounced) filters or the page change.
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api
-      .searchProducts({ ...debouncedFilters, page, page_size: 12 })
-      .then((data) => {
-        if (!cancelled) {
-          setResults(data);
-          setError("");
-        }
-      })
-      .catch((err) => !cancelled && setError(err.message))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedFilters, page]);
 
   const addToCart = async (productId) => {
     await cart.add(productId);
     setCartOpen(true);
   };
 
+  let page;
+  const needsLogin = route.path === "/checkout" || route.path.startsWith("/orders");
+  if (auth.checking && needsLogin) {
+    page = <main className="narrow"><p className="muted">Loading…</p></main>;
+  } else if (needsLogin && !auth.user) {
+    // After logging in, auth.user is set and this same URL re-renders as the real page.
+    page = <LoginPage auth={auth} onDone={() => {}} />;
+  } else if (route.path === "/login") {
+    page = <LoginPage auth={auth} onDone={() => navigate(route.params.next || "/")} />;
+  } else if (route.path === "/checkout") {
+    page = <CheckoutPage params={route.params} user={auth.user} cart={cart.cart} onPaid={cart.refresh} />;
+  } else if (route.path === "/orders") {
+    page = <OrdersPage />;
+  } else if (route.path.startsWith("/orders/")) {
+    page = <OrderPage orderId={route.path.slice("/orders/".length)} justPaid={route.params.paid === "1"} />;
+  } else {
+    page = <StorePage onAddToCart={addToCart} onBuyNow={(id) => requireLogin(`/checkout?product=${id}`)} />;
+  }
+
   return (
     <div className="app">
       <header className="topbar">
-        <h1>Furniture Store</h1>
-        <button className="cart-button" onClick={() => setCartOpen(true)} disabled={!cart.cart}>
-          Cart ({cart.cart ? cart.cart.item_count : 0})
-        </button>
+        <a className="brand" href="#/">Furniture Store</a>
+        <nav className="nav">
+          {auth.user ? (
+            <>
+              <a href="#/orders">My orders</a>
+              <span className="muted hello">Hi, {auth.user.name.split(" ")[0]}</span>
+              <button className="link" onClick={() => { auth.logout(); navigate("/"); }}>Log out</button>
+            </>
+          ) : (
+            <a href="#/login">Log in</a>
+          )}
+          <button className="cart-button" onClick={() => setCartOpen(true)} disabled={!cart.cart}>
+            Cart ({cart.cart ? cart.cart.item_count : 0})
+          </button>
+        </nav>
       </header>
 
-      <main>
-        <Filters filters={filters} categories={categories} onChange={changeFilters} />
+      {cart.error && <p className="error banner">{cart.error}</p>}
 
-        {(error || cart.error) && <p className="error">{error || cart.error}</p>}
-
-        <p className="muted result-count" aria-live="polite">
-          {loading ? "Searching…" : `${results.total} products found`}
-        </p>
-
-        <section className="grid">
-          {results.items.map((product) => (
-            <ProductCard key={product.id} product={product} onOpen={setOpenProductId} onAdd={addToCart} />
-          ))}
-        </section>
-
-        {!loading && results.total === 0 && (
-          <p className="empty">
-            No products match. <button onClick={() => changeFilters(EMPTY_FILTERS)}>Clear filters</button>
-          </p>
-        )}
-
-        {results.total_pages > 1 && (
-          <nav className="pagination" aria-label="Pages">
-            <button disabled={page === 1} onClick={() => setPage(page - 1)}>
-              Previous
-            </button>
-            <span>
-              Page {page} of {results.total_pages}
-            </span>
-            <button disabled={page === results.total_pages} onClick={() => setPage(page + 1)}>
-              Next
-            </button>
-          </nav>
-        )}
-      </main>
-
-      {openProductId && (
-        <ProductModal
-          productId={openProductId}
-          onClose={() => setOpenProductId(null)}
-          onOpen={setOpenProductId}
-          onAdd={addToCart}
-        />
-      )}
+      {page}
 
       {cartOpen && cart.cart && (
         <CartPanel
@@ -125,6 +75,10 @@ export default function App() {
           onQuantity={cart.setQuantity}
           onRemove={cart.remove}
           onClose={() => setCartOpen(false)}
+          onCheckout={() => {
+            setCartOpen(false);
+            requireLogin("/checkout");
+          }}
         />
       )}
     </div>

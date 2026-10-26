@@ -1,10 +1,23 @@
-"""Application factory: builds and configures the Flask app."""
+"""Application factory: builds and configures the Flask app.
+
+Settings come from environment variables (set them on Render, never in code):
+  DATABASE_URL         postgresql://... for Neon, or a SQLite file path (default: store.db)
+  SECRET_KEY           signs login tokens; must be a long random string in production
+  ALLOWED_ORIGINS      comma-separated frontend URLs allowed to call the API
+  RAZORPAY_KEY_ID      from the Razorpay dashboard (Test Mode keys start with rzp_test_)
+  RAZORPAY_KEY_SECRET  from the Razorpay dashboard; keep private
+"""
 
 import os
+import secrets
 
-from flask import Flask, jsonify, request
+from flask import Flask, request
 
-from .db import close_db, connect, init_db
+from .auth import auth
+from .db import Database, close_db, init_db
+from .errors import register_error_handlers
+from .orders import orders
+from .payments import RazorpayGateway
 from .recommender import TfidfRecommender
 from .repository import ProductRepository
 from .routes import api
@@ -13,23 +26,39 @@ from .routes import api
 def create_app(config=None):
     app = Flask(__name__)
     app.config.update(
-        DATABASE=os.environ.get("DATABASE_PATH", "store.db"),
-        # Comma-separated list of frontend URLs allowed to call the API.
+        # DATABASE_PATH is the old name for this setting; still accepted.
+        DATABASE=os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_PATH", "store.db"),
+        SECRET_KEY=os.environ.get("SECRET_KEY"),
         ALLOWED_ORIGINS=os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173"),
     )
     if config:
         app.config.update(config)
 
+    if not app.config["SECRET_KEY"]:
+        # Safe fallback for local development: a random key per run. Logins then
+        # reset whenever the server restarts, so always set SECRET_KEY in production.
+        app.config["SECRET_KEY"] = secrets.token_hex(32)
+        app.logger.warning("SECRET_KEY is not set; using a temporary random key")
+
     init_db(app.config["DATABASE"])
     app.teardown_appcontext(close_db)
+    register_error_handlers(app)
     app.register_blueprint(api)
+    app.register_blueprint(auth)
+    app.register_blueprint(orders)
+
+    # Payments: tests pass a fake gateway in config; otherwise use Razorpay if keys are set.
+    gateway = app.config.get("PAYMENT_GATEWAY")
+    if gateway is None and os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET"):
+        gateway = RazorpayGateway(os.environ["RAZORPAY_KEY_ID"], os.environ["RAZORPAY_KEY_SECRET"])
+    app.extensions["payment_gateway"] = gateway  # None means checkout returns "not configured"
 
     # Train the recommender once at startup on the whole catalogue.
-    conn = connect(app.config["DATABASE"])
+    db = Database(app.config["DATABASE"])
     try:
-        products = ProductRepository(conn).all()
+        products = ProductRepository(db).all()
     finally:
-        conn.close()
+        db.close()
     app.extensions["recommender"] = TfidfRecommender().fit(products)
 
     allowed = {o.strip() for o in app.config["ALLOWED_ORIGINS"].split(",") if o.strip()}
@@ -42,16 +71,7 @@ def create_app(config=None):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Vary"] = "Origin"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return response
 
-    @app.errorhandler(404)
-    def not_found(_err):
-        return jsonify(error="not found"), 404
-
-    @app.errorhandler(405)
-    def method_not_allowed(_err):
-        return jsonify(error="method not allowed"), 405
-
     return app
-

@@ -2,31 +2,12 @@
 (pytest also finds and runs these if you prefer:  pytest -v)
 """
 
-import os
-import tempfile
 import unittest
 
-from app import create_app
 from app.models import Cart, CartItem, Product
 from app.recommender import CategoryRecommender, Recommender, TfidfRecommender
 
-
-class ApiTestCase(unittest.TestCase):
-    """Each test gets a fresh app with its own temporary database."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.app = create_app({"DATABASE": os.path.join(self.tmp.name, "test.db"),
-                               "ALLOWED_ORIGINS": "http://localhost:5173"})
-        self.client = self.app.test_client()
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def search(self, **params):
-        response = self.client.get("/api/products", query_string=params)
-        self.assertEqual(response.status_code, 200, response.json)
-        return response.json
+from .base import ApiTestCase
 
 
 class ProductSearchTests(ApiTestCase):

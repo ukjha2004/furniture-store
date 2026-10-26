@@ -3,7 +3,7 @@ import { api, formatPrice } from "../api.js";
 import { ProductImage } from "./ProductCard.jsx";
 
 // Product details plus "You may also like" from the recommender endpoint.
-export default function ProductModal({ productId, onClose, onOpen, onAdd }) {
+export default function ProductModal({ productId, onClose, onOpen, onAdd, onBuyNow }) {
   const [product, setProduct] = useState(null);
   const [similar, setSimilar] = useState([]);
   const [error, setError] = useState("");
@@ -54,9 +54,14 @@ export default function ProductModal({ productId, onClose, onOpen, onAdd }) {
                 </p>
                 <p>{product.description}</p>
                 <p className="price">{formatPrice(product.price)}</p>
-                <button className="primary" onClick={() => onAdd(product.id)}>
-                  Add to cart
-                </button>
+                <div className="actions">
+                  <button className="primary" onClick={() => onBuyNow(product.id)}>
+                    Buy now
+                  </button>
+                  <button className="secondary" onClick={() => onAdd(product.id)}>
+                    Add to cart
+                  </button>
+                </div>
               </div>
             </div>
             <h3>You may also like</h3>

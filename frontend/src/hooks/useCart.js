@@ -61,5 +61,7 @@ export function useCart() {
     add: (productId) => run(() => api.addToCart(cart.id, productId)),
     setQuantity: (productId, quantity) => run(() => api.updateQuantity(cart.id, productId, quantity)),
     remove: (productId) => run(() => api.removeFromCart(cart.id, productId)),
+    // Re-read the cart from the server (the server empties it after a successful payment).
+    refresh: () => cart && run(() => api.getCart(cart.id)),
   };
 }

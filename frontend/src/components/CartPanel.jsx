@@ -1,6 +1,6 @@
 import { formatPrice } from "../api.js";
 
-export default function CartPanel({ cart, onQuantity, onRemove, onClose }) {
+export default function CartPanel({ cart, onQuantity, onRemove, onClose, onCheckout }) {
   return (
     <aside className="cart" aria-label="Shopping cart">
       <div className="cart-header">
@@ -46,6 +46,9 @@ export default function CartPanel({ cart, onQuantity, onRemove, onClose }) {
         <span>Subtotal ({cart.item_count} items)</span>
         <strong>{formatPrice(cart.subtotal)}</strong>
       </div>
+      <button className="primary checkout-button" onClick={onCheckout} disabled={cart.items.length === 0}>
+        Proceed to checkout
+      </button>
     </aside>
   );
 }
