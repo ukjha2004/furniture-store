@@ -49,8 +49,18 @@ def create_app(config=None):
 
     # Payments: tests pass a fake gateway in config; otherwise use Razorpay if keys are set.
     gateway = app.config.get("PAYMENT_GATEWAY")
-    if gateway is None and os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET"):
-        gateway = RazorpayGateway(os.environ["RAZORPAY_KEY_ID"], os.environ["RAZORPAY_KEY_SECRET"])
+    # .strip() removes spaces or newlines accidentally pasted around the keys.
+    key_id = os.environ.get("RAZORPAY_KEY_ID", "").strip()
+    key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
+    if gateway is None and key_id and key_secret:
+        gateway = RazorpayGateway(key_id, key_secret)
+        # Startup self-check. Logs the public key id and the secret's LENGTH only (never the secret),
+        # so a wrong, swapped or truncated key is easy to spot in the Render logs.
+        app.logger.warning(
+            "Razorpay key id %s (%s mode), secret length %d -> %s",
+            key_id, "test" if key_id.startswith("rzp_test_") else "LIVE?", len(key_secret),
+            gateway.check_credentials(),
+        )
     app.extensions["payment_gateway"] = gateway  # None means checkout returns "not configured"
 
     # Train the recommender once at startup on the whole catalogue.

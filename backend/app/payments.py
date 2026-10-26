@@ -64,3 +64,15 @@ class RazorpayGateway(PaymentGateway):
         if response.status_code != 200:
             raise PaymentError(f"Razorpay returned {response.status_code}: {response.text[:200]}")
         return response.json()["id"]
+
+    def check_credentials(self):
+        """Ask Razorpay whether these keys are valid (read-only: lists 1 order).
+        Returns a short status string for the startup log; never raises."""
+        try:
+            response = requests.get(self.ORDERS_URL, params={"count": 1},
+                                    auth=(self.key_id, self._key_secret), timeout=self.timeout)
+        except requests.RequestException as err:
+            return f"could not reach Razorpay ({err.__class__.__name__})"
+        if response.status_code == 200:
+            return "OK, keys accepted"
+        return f"REJECTED with HTTP {response.status_code}: the key id / secret pair is wrong"
